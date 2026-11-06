@@ -1,0 +1,68 @@
+export interface SingularityDef {
+  index: number;
+  code: string;
+  name: string;
+  subtitle: string;
+  era: string;
+  /** Pool de enemigos comunes */
+  enemies: string[];
+  elites: string[];
+  boss: string;
+  /** Escoltas del jefe */
+  bossEscort: string[];
+  /** Nivel base de los enemigos */
+  baseLevel: number;
+  /** Colores del tema del mapa */
+  theme: { from: string; to: string; accent: string };
+}
+
+export const SINGULARITIES: SingularityDef[] = [
+  {
+    index: 0, code: 'I', name: 'Orleans', subtitle: 'Guerra de los Cien Años del Dragón Malvado', era: 'Francia, 1431 d.C.',
+    enemies: ['skeleton', 'skeleton_archer', 'zombie', 'wyvern'], elites: ['elite_vlad'],
+    boss: 'boss_jalter', bossEscort: ['wyvern', 'wyvern'], baseLevel: 4,
+    theme: { from: '#2b1a12', to: '#5a2a12', accent: '#ff7a3d' },
+  },
+  {
+    index: 1, code: 'II', name: 'Septem', subtitle: 'Imperio de Rosas en Guerra Eterna', era: 'Roma, 60 d.C.',
+    enemies: ['roman_soldier', 'ghost', 'skeleton', 'wyvern'], elites: ['elite_caligula'],
+    boss: 'boss_altera', bossEscort: ['roman_soldier', 'roman_soldier'], baseLevel: 14,
+    theme: { from: '#2a0f1b', to: '#5b1730', accent: '#ff5c8a' },
+  },
+  {
+    index: 2, code: 'III', name: 'Okeanos', subtitle: 'Mares Sellados Sin Rumbo', era: 'Mares sin nombre, 1573 d.C.',
+    enemies: ['pirate', 'sea_serpent', 'ghost', 'skeleton_archer'], elites: ['elite_jason'],
+    boss: 'boss_heracles', bossEscort: ['pirate', 'pirate'], baseLevel: 24,
+    theme: { from: '#06202e', to: '#0d4560', accent: '#3fd2ff' },
+  },
+  {
+    index: 3, code: 'IV', name: 'London', subtitle: 'Ciudad Encantada de la Niebla de la Muerte', era: 'Londres, 1888 d.C.',
+    enemies: ['homunculus', 'automaton', 'helter_skelter', 'ghost'], elites: ['elite_mordred'],
+    boss: 'boss_alter_lancer', bossEscort: ['helter_skelter', 'homunculus'], baseLevel: 34,
+    theme: { from: '#15161c', to: '#353844', accent: '#c9d1ff' },
+  },
+  {
+    index: 4, code: 'V', name: 'E Pluribus Unum', subtitle: 'Guerra de Purificación Norteamericana', era: 'América, 1783 d.C.',
+    enemies: ['celtic_warrior', 'ken', 'wyvern', 'automaton'], elites: ['elite_medb'],
+    boss: 'boss_cu_alter', bossEscort: ['celtic_warrior', 'ken'], baseLevel: 44,
+    theme: { from: '#1d1208', to: '#4a3214', accent: '#ffc44d' },
+  },
+  {
+    index: 5, code: 'VI', name: 'Camelot', subtitle: 'La Cruzada Divina de la Tierra Sagrada', era: 'Jerusalén, 1273 d.C.',
+    enemies: ['knight', 'sphinx', 'skeleton', 'zombie'], elites: ['elite_gawain'],
+    boss: 'boss_lion_king', bossEscort: ['knight', 'knight'], baseLevel: 54,
+    theme: { from: '#1c1a0c', to: '#5a5220', accent: '#fff1a8' },
+  },
+  {
+    index: 6, code: 'VII', name: 'Babylonia', subtitle: 'Frente Absoluto de las Bestias Demoníacas', era: 'Mesopotamia, 2655 a.C.',
+    enemies: ['lahmu', 'chimera', 'sphinx', 'wyvern'], elites: ['elite_gorgon'],
+    boss: 'boss_tiamat', bossEscort: ['lahmu', 'lahmu'], baseLevel: 64,
+    theme: { from: '#0c1a14', to: '#163e2b', accent: '#5dffae' },
+  },
+  {
+    index: 7, code: 'FINAL', name: 'Templo de Salomón', subtitle: 'Singularidad Final: Grand Time Temple', era: 'Fin de los tiempos',
+    enemies: ['demon_pillar_minor', 'lahmu', 'chimera', 'helter_skelter'], elites: ['elite_pillar'],
+    boss: 'boss_goetia', bossEscort: ['demon_pillar_minor', 'demon_pillar_minor'], baseLevel: 74,
+    theme: { from: '#160814', to: '#3d0f2c', accent: '#ff3d6e' },
+  },
+];
