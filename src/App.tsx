@@ -4,6 +4,7 @@ import { StarterScreen } from './ui/screens/StarterScreen';
 import { MapScreen } from './ui/screens/MapScreen';
 import { BattleScreen } from './ui/screens/BattleScreen';
 import { ResultScreen } from './ui/screens/ResultScreen';
+import { CeRewardScreen } from './ui/screens/CeRewardScreen';
 import { GachaScreen } from './ui/screens/GachaScreen';
 import { RestScreen } from './ui/screens/RestScreen';
 import { TreasureScreen } from './ui/screens/TreasureScreen';
@@ -21,6 +22,7 @@ export function App() {
     case 'map': screen = <MapScreen run={run} />; break;
     case 'battle': screen = <BattleScreen run={run} />; break;
     case 'battleResult': screen = <ResultScreen run={run} />; break;
+    case 'ceReward': screen = <CeRewardScreen run={run} />; break;
     case 'gacha': screen = <GachaScreen run={run} />; break;
     case 'rest': screen = <RestScreen run={run} />; break;
     case 'treasure': screen = <TreasureScreen run={run} />; break;

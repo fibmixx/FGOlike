@@ -1,21 +1,32 @@
-// Store mínimo basado en useSyncExternalStore (sin dependencias externas).
-// Cada acción clona la run → la muta con el motor → guarda en localStorage.
+// Minimal store on top of useSyncExternalStore (no dependencies).
+// Each action clones the run → mutates it with the engine → saves to localStorage.
 import { useSyncExternalStore } from 'react';
 import type { BattleState, RunState } from '@/game/types';
 import { newRun, withRng } from '@/game/run';
 import { newSeed, type Rng } from '@/game/rng';
 import { loadMeta, loadRun, saveMeta, saveRun, type MetaProgress } from '@/game/save';
 
+export type BattleSpeed = 1 | 2 | 4;
+
 export interface GameState {
   run: RunState | null;
   meta: MetaProgress;
   hasSave: boolean;
+  speed: BattleSpeed;
+}
+
+function loadSpeed(): BattleSpeed {
+  try {
+    const v = Number(localStorage.getItem('fgolike.speed'));
+    return v === 2 || v === 4 ? v : 1;
+  } catch { return 1; }
 }
 
 let state: GameState = {
   run: null,
   meta: loadMeta(),
   hasSave: loadRun() !== null,
+  speed: loadSpeed(),
 };
 const listeners = new Set<() => void>();
 
@@ -46,9 +57,9 @@ function trackMeta(prev: RunState | null, run: RunState) {
   }
 }
 
-// ─── Acciones genéricas ──────────────────────────────────────
+// ─── Generic actions ────────────────────────────────────────
 
-/** Aplica una mutación sobre una copia de la run y la persiste. */
+/** Applies a mutation to a copy of the run and persists it. */
 export function act(fn: (run: RunState) => void) {
   if (!state.run) return;
   const prev = state.run;
@@ -60,7 +71,7 @@ export function act(fn: (run: RunState) => void) {
   set({ run, hasSave: !finished });
 }
 
-/** Igual que act, pero con acceso directo a la batalla y al RNG de la run. */
+/** Like act, with direct access to the battle and the run's RNG. */
 export function battleAct(fn: (b: BattleState, rng: Rng, run: RunState) => void) {
   act((run) => {
     if (!run.battle) return;
@@ -68,7 +79,12 @@ export function battleAct(fn: (b: BattleState, rng: Rng, run: RunState) => void)
   });
 }
 
-// ─── Ciclo de vida ───────────────────────────────────────────
+export function setSpeed(speed: BattleSpeed) {
+  try { localStorage.setItem('fgolike.speed', String(speed)); } catch { /* noop */ }
+  set({ speed });
+}
+
+// ─── Lifecycle ──────────────────────────────────────────────
 
 export function startNewRun() {
   const run = newRun(newSeed());

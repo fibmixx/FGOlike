@@ -1,22 +1,24 @@
 // ─────────────────────────────────────────────────────────────
-//  Lógica de la partida (run): mapa → nodos → recompensas.
-//  Todas las funciones mutan el RunState recibido (el store clona antes).
+//  Run flow: map → nodes → rewards. Every function mutates the
+//  RunState it receives (the store clones it beforehand).
 // ─────────────────────────────────────────────────────────────
-import { getServant } from '@/data/servants';
+import { CRAFT_ESSENCES } from '@/data/craftEssences';
+import { CHALDEA_UNIFORM } from '@/data/mysticCodes';
+import { getServant, hasServant } from '@/data/servants';
 import { SINGULARITIES } from '@/data/singularities';
-import { LEVEL_CAPS, MAX_COMMAND_SEALS, MAX_PARTY, expToNext } from './constants';
-import { battleHpByUid, createBattle } from './combat/battle';
-import { generateEncounter } from './combat/factory';
+import { GACHA_SEAL_CHANCE, LEVEL_CAPS, MAX_COMMAND_SEALS, MAX_PARTY, expToNext } from './constants';
+import { activateMasterSkill, battleOutcome, createBattle } from './combat/battle';
+import { ceFor, generateEncounter } from './combat/factory';
 import { availableNodes, generateMap } from './map/generator';
 import { rollGacha } from './progression/gacha';
 import { ascend, canAscend, gainExp, statsFor } from './progression/leveling';
 import { Rng } from './rng';
 import type { BattleKind, RunState, ServantInstance } from './types';
 
-export const RUN_VERSION = 1;
+export const RUN_VERSION = 2;
 const START_LEVEL = 5;
 
-/** Ejecuta `fn` con un Rng ligado al estado de la run y guarda el estado resultante. */
+/** Runs `fn` with an Rng bound to the run's RNG state and stores the new state. */
 export function withRng<T>(run: RunState, fn: (rng: Rng) => T): T {
   const rng = new Rng(run.rngState);
   const out = fn(rng);
@@ -25,7 +27,9 @@ export function withRng<T>(run: RunState, fn: (rng: Rng) => T): T {
 }
 
 function makeInstance(run: RunState, defId: string, level: number, ascension = 0): ServantInstance {
-  const inst: ServantInstance = { uid: `s${run.uidCounter++}`, defId, level, exp: 0, ascension, npLevel: 1, hp: 0 };
+  const inst: ServantInstance = {
+    uid: `s${run.uidCounter++}`, defId, level, exp: 0, ascension, npLevel: 1, hp: 0, np: 0, ce: null,
+  };
   inst.hp = statsFor(inst).maxHp;
   return inst;
 }
@@ -41,11 +45,15 @@ export function newRun(seed: number): RunState {
     map: generateMap(rng, 0),
     currentNode: null,
     party: [],
+    ces: [],
     crystals: 0,
     commandSeals: MAX_COMMAND_SEALS,
+    mysticUsed: CHALDEA_UNIFORM.skills.map(() => false),
     uidCounter: 0,
     gachaOptions: [],
+    gachaSeal: false,
     starterOptions: rollGacha(rng, 0, 3, { maxRarity: 4 }),
+    ceOptions: [],
     battle: null,
     lastReward: null,
     treasureText: null,
@@ -57,12 +65,13 @@ export function newRun(seed: number): RunState {
 
 export function chooseStarter(run: RunState, defId: string) {
   if (run.phase !== 'starter' || !run.starterOptions.includes(defId)) return;
-  run.party = [makeInstance(run, defId, START_LEVEL), makeInstance(run, 'mash', START_LEVEL)];
+  run.party = [makeInstance(run, defId, START_LEVEL)];
+  if (hasServant('mash')) run.party.push(makeInstance(run, 'mash', START_LEVEL));
   run.starterOptions = [];
   run.phase = 'map';
 }
 
-// ─── Mapa ────────────────────────────────────────────────────
+// ─── Map ────────────────────────────────────────────────────
 
 export function canEnter(run: RunState, nodeId: string): boolean {
   return run.phase === 'map' && availableNodes(run.map, run.currentNode).includes(nodeId);
@@ -81,7 +90,11 @@ export function enterNode(run: RunState, nodeId: string) {
       startBattle(run, node.type, node.layer);
       break;
     case 'gacha':
-      run.gachaOptions = withRng(run, (rng) => rollGacha(rng, run.singularity, 3));
+      withRng(run, (rng) => {
+        run.gachaOptions = rollGacha(rng, run.singularity, 3);
+        run.gachaSeal = run.commandSeals < MAX_COMMAND_SEALS && rng.chance(GACHA_SEAL_CHANCE);
+      });
+      if (run.gachaSeal) run.commandSeals++;
       run.phase = 'gacha';
       break;
     case 'rest':
@@ -89,7 +102,6 @@ export function enterNode(run: RunState, nodeId: string) {
       break;
     case 'treasure':
       openTreasure(run);
-      run.phase = 'treasure';
       break;
   }
 }
@@ -97,22 +109,36 @@ export function enterNode(run: RunState, nodeId: string) {
 function startBattle(run: RunState, kind: BattleKind, layer: number) {
   withRng(run, (rng) => {
     const waves = generateEncounter(rng, run.singularity, layer, kind);
-    run.battle = createBattle(rng, run.party, waves, kind);
+    run.battle = createBattle(rng, run.party, waves, kind, (inst) => ceFor(inst, run.ces));
   });
   run.phase = 'battle';
 }
 
-// ─── Final de combate ────────────────────────────────────────
+// ─── Mystic Code (once per Singularity) ─────────────────────
 
-/** Llamar cuando battle.status sea 'won' o 'lost'. */
+export function useMysticCode(run: RunState, idx: number, allyKey?: string): boolean {
+  if (!run.battle || run.mysticUsed[idx]) return false;
+  const ok = withRng(run, (rng) => activateMasterSkill(run.battle!, rng, idx, allyKey));
+  if (ok) run.mysticUsed[idx] = true;
+  return ok;
+}
+
+// ─── Battle end ─────────────────────────────────────────────
+
+/** Call once battle.status is 'won' or 'lost'. */
 export function resolveBattle(run: RunState) {
   const b = run.battle;
   if (!b || b.status === 'player') return;
   run.stats.battles++;
   run.stats.turns += b.turn;
 
-  const hp = battleHpByUid(b);
-  for (const p of run.party) if (p.uid in hp) p.hp = hp[p.uid];
+  const outcome = battleOutcome(b, (uid) => {
+    const p = run.party.find((x) => x.uid === uid);
+    return p ? statsFor(p).maxHp : 0;
+  });
+  for (const p of run.party) {
+    if (outcome[p.uid]) { p.hp = outcome[p.uid].hp; p.np = outcome[p.uid].np; }
+  }
 
   if (b.status === 'lost') {
     run.phase = 'gameover';
@@ -144,11 +170,17 @@ export function resolveBattle(run: RunState) {
   run.phase = 'battleResult';
 }
 
+const nodeType = (run: RunState) => (run.currentNode ? run.map.nodes[run.currentNode].type : null);
+
 export function continueFromResult(run: RunState) {
   if (run.phase !== 'battleResult') return;
-  const node = run.currentNode ? run.map.nodes[run.currentNode] : null;
   run.lastReward = null;
-  run.phase = node?.type === 'boss' ? 'singularityClear' : 'map';
+  const t = nodeType(run);
+  if (t === 'elite' || t === 'boss') {
+    offerCraftEssences(run);
+    return;
+  }
+  run.phase = 'map';
 }
 
 export function nextSingularity(run: RunState) {
@@ -160,20 +192,61 @@ export function nextSingularity(run: RunState) {
   run.singularity++;
   run.map = withRng(run, (rng) => generateMap(rng, run.singularity));
   run.currentNode = null;
-  run.commandSeals = Math.min(MAX_COMMAND_SEALS, run.commandSeals + 1);
-  // Chaldea recupera a todo el equipo entre Singularidades
+  run.mysticUsed = run.mysticUsed.map(() => false);
+  // Chaldea restores the whole party between Singularities (Command Seals do NOT come back)
   for (const p of run.party) p.hp = statsFor(p).maxHp;
   run.phase = 'map';
 }
 
-// ─── Gacha ───────────────────────────────────────────────────
+// ─── Craft Essences ─────────────────────────────────────────
+
+function rollCraftEssences(run: RunState, count = 3): string[] {
+  return withRng(run, (rng) => {
+    const s = run.singularity;
+    const out: string[] = [];
+    while (out.length < count) {
+      const rarity = rng.weighted([
+        { item: 5, weight: 10 + s * 3 },
+        { item: 4, weight: 35 },
+        { item: 3, weight: Math.max(15, 55 - s * 4) },
+      ]);
+      const pool = CRAFT_ESSENCES.filter((c) => c.rarity === rarity && !out.includes(c.id));
+      if (pool.length) out.push(rng.pick(pool).id);
+    }
+    return out;
+  });
+}
+
+function offerCraftEssences(run: RunState) {
+  run.ceOptions = rollCraftEssences(run);
+  run.phase = 'ceReward';
+}
+
+/** Picks a Craft Essence reward (or null to skip). */
+export function chooseCraftEssence(run: RunState, defId: string | null) {
+  if (run.phase !== 'ceReward') return;
+  if (defId && run.ceOptions.includes(defId)) run.ces.push({ uid: `ce${run.uidCounter++}`, defId });
+  run.ceOptions = [];
+  run.treasureText = null;
+  run.phase = nodeType(run) === 'boss' ? 'singularityClear' : 'map';
+}
+
+/** Equips a CE on a servant (moving it from whoever had it). null unequips. */
+export function equipCraftEssence(run: RunState, servantUid: string, ceUid: string | null) {
+  if (run.phase === 'battle') return;
+  const p = run.party.find((x) => x.uid === servantUid);
+  if (!p) return;
+  if (ceUid) for (const other of run.party) if (other.ce === ceUid) other.ce = null;
+  p.ce = ceUid;
+}
+
+// ─── Summon ─────────────────────────────────────────────────
 
 function partyAverageLevel(run: RunState): number {
   if (!run.party.length) return START_LEVEL;
   return Math.round(run.party.reduce((s, p) => s + p.level, 0) / run.party.length);
 }
 
-/** Resultado de elegir un Servant del gacha. */
 export type RecruitOutcome = 'joined' | 'npUp' | 'needsReplace' | 'invalid';
 
 export function previewRecruit(run: RunState, defId: string): RecruitOutcome {
@@ -205,6 +278,7 @@ export function recruit(run: RunState, defId: string, replaceUid?: string): Recr
   }
   run.stats.recruits++;
   run.gachaOptions = [];
+  run.gachaSeal = false;
   run.phase = 'map';
   return outcome === 'needsReplace' ? 'joined' : outcome;
 }
@@ -212,54 +286,54 @@ export function recruit(run: RunState, defId: string, replaceUid?: string): Recr
 export function skipGacha(run: RunState) {
   if (run.phase !== 'gacha') return;
   run.gachaOptions = [];
+  run.gachaSeal = false;
   run.phase = 'map';
 }
 
-// ─── Descanso ────────────────────────────────────────────────
+// ─── Rest ───────────────────────────────────────────────────
 
 export function rest(run: RunState, choice: 'heal' | 'train') {
   if (run.phase !== 'rest') return;
   for (const p of run.party) {
-    if (choice === 'heal') {
-      p.hp = statsFor(p).maxHp; // también revive a los caídos
-    } else if (p.hp > 0) {
-      gainExp(p, expToNext(p.level) * 2 + expToNext(p.level + 1));
-    }
+    if (choice === 'heal') p.hp = statsFor(p).maxHp; // also revives the fallen
+    else if (p.hp > 0) gainExp(p, expToNext(p.level) * 2 + expToNext(p.level + 1));
   }
   run.phase = 'map';
 }
 
-// ─── Tesoro ──────────────────────────────────────────────────
+// ─── Treasure ───────────────────────────────────────────────
 
 function openTreasure(run: RunState) {
   const roll = withRng(run, (rng) =>
     rng.weighted([
-      { item: 'crystal', weight: 32 },
-      { item: 'exp', weight: 30 },
-      { item: 'seal', weight: run.commandSeals < MAX_COMMAND_SEALS ? 14 : 0 },
-      { item: 'heal', weight: 24 },
+      { item: 'ce', weight: 35 },
+      { item: 'crystal', weight: 25 },
+      { item: 'exp', weight: 22 },
+      { item: 'heal', weight: 18 },
     ]),
   );
+  if (roll === 'ce') {
+    run.treasureText = 'A Craft Essence lies among the ruins. Choose one.';
+    offerCraftEssences(run);
+    return;
+  }
   switch (roll) {
     case 'crystal':
       run.crystals++;
-      run.treasureText = 'Encuentras un Cristal de Ascensión entre los restos de un altar. (+1 ◆)';
+      run.treasureText = 'You find an Ascension Crystal on a forgotten altar. (+1 ◆)';
       break;
     case 'exp':
       for (const p of run.party) if (p.hp > 0) gainExp(p, expToNext(p.level) + expToNext(p.level + 1));
-      run.treasureText = 'Un montón de Fuegos Fatuos (EXP). Todo el equipo vivo sube unos 2 niveles.';
-      break;
-    case 'seal':
-      run.commandSeals++;
-      run.treasureText = 'Un Fragmento de Hechizo de Comando resuena en tu mano. (+1 Hechizo)';
+      run.treasureText = 'A pile of Embers (EXP). Every living Servant gains about 2 levels.';
       break;
     default:
       for (const p of run.party) {
         const max = statsFor(p).maxHp;
         p.hp = p.hp > 0 ? Math.min(max, p.hp + Math.round(max * 0.4)) : Math.round(max * 0.2);
       }
-      run.treasureText = 'Un manantial de maná puro. El equipo recupera un 40% de vida (los caídos vuelven con un 20%).';
+      run.treasureText = 'A spring of pure mana. The party recovers 40% HP (the fallen return with 20%).';
   }
+  run.phase = 'treasure';
 }
 
 export function closeTreasure(run: RunState) {
@@ -268,7 +342,7 @@ export function closeTreasure(run: RunState) {
   run.phase = 'map';
 }
 
-// ─── Gestión del equipo ──────────────────────────────────────
+// ─── Party management ───────────────────────────────────────
 
 export function ascendServant(run: RunState, uid: string): boolean {
   const p = run.party.find((x) => x.uid === uid);
@@ -277,7 +351,7 @@ export function ascendServant(run: RunState, uid: string): boolean {
   return true;
 }
 
-/** Mueve un Servant a otra posición de la formación (0–2 = primera línea). */
+/** Moves a servant within the formation (0–2 = front line). */
 export function moveServant(run: RunState, uid: string, toIndex: number) {
   if (run.phase === 'battle') return;
   const idx = run.party.findIndex((p) => p.uid === uid);
@@ -286,7 +360,7 @@ export function moveServant(run: RunState, uid: string, toIndex: number) {
   run.party.splice(Math.max(0, Math.min(run.party.length, toIndex)), 0, p);
 }
 
-/** Hechizo de Comando fuera de combate: revive a un Servant con 50% de vida. */
+/** Command Seal outside battle: revives a servant with 50% HP. */
 export function sealRevive(run: RunState, uid: string): boolean {
   const p = run.party.find((x) => x.uid === uid);
   if (!p || p.hp > 0 || run.commandSeals <= 0 || run.phase === 'battle') return false;

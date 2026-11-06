@@ -10,7 +10,6 @@ export function Hud({ run }: { run: RunState }) {
   const [open, setOpen] = useState<'party' | 'help' | 'menu' | null>(null);
   const sing = SINGULARITIES[run.singularity];
   const inBattle = run.phase === 'battle';
-  const canAscendAny = run.crystals > 0;
 
   return (
     <>
@@ -23,14 +22,15 @@ export function Hud({ run }: { run: RunState }) {
           </div>
         </div>
         <div className="hud-stats">
-          <span title="Cristales de Ascensión">◆ {run.crystals}</span>
-          <span title="Hechizos de Comando" className="seals">
+          <span title="Ascension Crystals">◆ {run.crystals}</span>
+          <span title="Craft Essences">✧ {run.ces.length}</span>
+          <span title="Command Seals (they do not regenerate)" className="seals">
             {Array.from({ length: 3 }, (_, i) => <i key={i} className={i < run.commandSeals ? 'on' : ''}>✠</i>)}
           </span>
         </div>
         <nav className="hud-actions">
-          <button className={`btn ${canAscendAny && !inBattle ? 'glow' : ''}`} onClick={() => setOpen('party')}>
-            Equipo ({run.party.length}/6)
+          <button className={`btn ${run.crystals > 0 && !inBattle ? 'glow' : ''}`} onClick={() => setOpen('party')}>
+            Party ({run.party.length}/6)
           </button>
           <button className="btn ghost" onClick={() => setOpen('help')}>?</button>
           <button className="btn ghost" onClick={() => setOpen('menu')}>☰</button>
@@ -38,22 +38,22 @@ export function Hud({ run }: { run: RunState }) {
       </header>
 
       {open === 'party' && (
-        <Modal title="Equipo de Servants" onClose={() => setOpen(null)} wide>
+        <Modal title="Servants" onClose={() => setOpen(null)} wide>
           <PartyPanel run={run} />
         </Modal>
       )}
       {open === 'help' && (
-        <Modal title="Cómo jugar" onClose={() => setOpen(null)} wide>
+        <Modal title="How to play" onClose={() => setOpen(null)} wide>
           <HelpPanel />
         </Modal>
       )}
       {open === 'menu' && (
-        <Modal title="Menú" onClose={() => setOpen(null)}>
+        <Modal title="Menu" onClose={() => setOpen(null)}>
           <div className="stack">
-            <p className="muted">La partida se guarda automáticamente.</p>
-            <button className="btn" onClick={toTitle}>Volver al título</button>
-            <button className="btn danger" onClick={() => { if (confirm('¿Abandonar la partida? Se perderá el progreso.')) abandonRun(); }}>
-              Abandonar partida
+            <p className="muted">Your run is saved automatically.</p>
+            <button className="btn" onClick={toTitle}>Back to title</button>
+            <button className="btn danger" onClick={() => { if (confirm('Abandon this run? All progress will be lost.')) abandonRun(); }}>
+              Abandon run
             </button>
           </div>
         </Modal>

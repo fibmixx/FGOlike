@@ -1,6 +1,5 @@
-// Simulador headless para balancear: juega N partidas con una IA sencilla.
-// Uso:  npx tsx scripts/simulate.ts [partidas=50]
-import { getServant } from '../src/data/servants';
+// Headless balance simulator: plays N runs with a simple AI.
+// Usage:  npm run simulate -- [runs=50] [-v]
 import { SINGULARITIES } from '../src/data/singularities';
 import {
   aliveFront, executeTurn, npReady, skillNeedsAlly, toggleSelect, activateSkill,
@@ -9,8 +8,8 @@ import { availableNodes } from '../src/game/map/generator';
 import { canAscend } from '../src/game/progression/leveling';
 import { Rng } from '../src/game/rng';
 import {
-  ascendServant, chooseStarter, closeTreasure, continueFromResult, enterNode, nextSingularity,
-  newRun, recruit, resolveBattle, rest, withRng,
+  ascendServant, chooseCraftEssence, chooseStarter, closeTreasure, continueFromResult, enterNode,
+  equipCraftEssence, nextSingularity, newRun, recruit, resolveBattle, rest, useMysticCode, withRng,
 } from '../src/game/run';
 import type { RunState } from '../src/game/types';
 
@@ -18,18 +17,21 @@ function autoBattle(run: RunState) {
   const b = run.battle!;
   let guard = 0;
   while (b.status === 'player' && guard++ < 200) {
-    // Usa todas las skills disponibles (aliado objetivo = el de menor vida)
+    // Use every available skill (ally target = lowest HP)
     for (const a of aliveFront(b)) {
       a.cooldowns.forEach((cd, i) => {
         if (cd !== 0) return;
-        const sk = getServant(a.defId).skills[i];
+        const sk = a.skills[i];
         const ally = skillNeedsAlly(sk)
           ? [...aliveFront(b)].sort((x, y) => x.hp / x.maxHp - y.hp / y.maxHp)[0].key
           : undefined;
-        activateSkill(b, a.key, i, ally);
+        withRng(run, (rng) => activateSkill(b, rng, a.key, i, ally));
       });
     }
-    // NPs primero, luego cartas priorizando Brave chain del Servant con más cartas
+    // Mystic Code: heal when someone is low
+    const low = aliveFront(b).find((a) => a.hp / a.maxHp < 0.35);
+    if (low) useMysticCode(run, 0, low.key);
+    // NPs first, then cards favouring a Brave chain
     for (const a of aliveFront(b)) if (npReady(b, a.key)) toggleSelect(b, `np:${a.key}`);
     const counts = new Map<string, number>();
     b.hand.forEach((c) => counts.set(c.owner, (counts.get(c.owner) ?? 0) + 1));
@@ -50,7 +52,7 @@ function playRun(seed: number) {
     switch (run.phase) {
       case 'map': {
         const opts = availableNodes(run.map, run.currentNode);
-        // Preferencia: rest si hay heridos, gacha si equipo < 6
+        // Prefer rest when someone fell, summon while the party is < 6
         const hurt = run.party.some((p) => p.hp <= 0);
         const pref = opts.find((id) => run.map.nodes[id].type === (hurt ? 'rest' : run.party.length < 6 ? 'gacha' : 'treasure'));
         enterNode(run, pref ?? rng.pick(opts));
@@ -63,7 +65,7 @@ function playRun(seed: number) {
           const lv = run.party.map((p) => p.level).join('/');
           const hpBefore = run.party.map((p) => p.hp).reduce((a, c) => a + c, 0);
           autoBattle(run);
-          console.log(`  [${SINGULARITIES[run.singularity].code}] equipo ${lv} vs ${boss.name} L${boss.level} HP${boss.maxHp} ATK${boss.atk} → ${run.phase} (${b.turn} turnos, hp equipo ${hpBefore})`);
+          console.log(`  [${SINGULARITIES[run.singularity].code}] party ${lv} vs ${boss.name} L${boss.level} HP${boss.maxHp}+${boss.phases.length} bars → ${run.phase} (${b.turn} turns, party HP ${hpBefore})`);
         } else autoBattle(run);
         break;
       }
@@ -76,6 +78,13 @@ function playRun(seed: number) {
       }
       case 'rest': rest(run, run.party.some((p) => p.hp < 0.6 * 9999) ? 'heal' : 'train'); break;
       case 'treasure': closeTreasure(run); break;
+      case 'ceReward': {
+        chooseCraftEssence(run, run.ceOptions[0]);
+        const ce = run.ces[run.ces.length - 1];
+        const holder = run.party.find((p) => !p.ce);
+        if (ce && holder) equipCraftEssence(run, holder.uid, ce.uid);
+        break;
+      }
       case 'singularityClear': nextSingularity(run); break;
       case 'gameover':
       case 'victory':
@@ -103,7 +112,7 @@ for (let i = 0; i < N; i++) {
   }
   levels.push(Math.max(...run.party.map((p) => p.level)));
 }
-console.log(`Partidas: ${N}  Victorias: ${wins}`);
-SINGULARITIES.forEach((s, i) => console.log(`  Muere en ${s.code.padEnd(5)} ${s.name.padEnd(18)} ${reached[i]}`));
-console.log(`  Nivel máx. medio al terminar: ${(levels.reduce((a, b) => a + b, 0) / N).toFixed(1)}`);
-console.log('  Muertes por nodo:', Object.entries(deaths).sort((a, b) => b[1] - a[1]).slice(0, 8));
+console.log(`Runs: ${N}  Wins: ${wins}`);
+SINGULARITIES.forEach((s, i) => console.log(`  Died in ${s.code.padEnd(5)} ${s.name.padEnd(18)} ${reached[i]}`));
+console.log(`  Average max level at the end: ${(levels.reduce((a, b) => a + b, 0) / N).toFixed(1)}`);
+console.log('  Deaths by node:', Object.entries(deaths).sort((a, b) => b[1] - a[1]).slice(0, 8));

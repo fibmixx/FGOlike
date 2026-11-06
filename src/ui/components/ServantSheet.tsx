@@ -1,13 +1,17 @@
 import { getServant } from '@/data/servants';
+import { skillLevelFor } from '@/game/constants';
+import { describeEffects, describeNp, resolveNp, resolveSkill } from '@/game/effects';
 import { unlockedSkills } from '@/game/progression/leveling';
 import { CardTypeTag, ClassBadge, Portrait, Rarity } from './common';
 
-/** Ficha completa de un Servant: deck, skills (con bloqueo por ascensión) y NP. */
-export function ServantSheet({ defId, ascension = 0, npLevel = 1, compact = false }: {
-  defId: string; ascension?: number; npLevel?: number; compact?: boolean;
+/** Full servant sheet: deck, skills (locked by ascension), passives and NP. */
+export function ServantSheet({ defId, ascension = 0, npLevel = 1, level = 1, compact = false }: {
+  defId: string; ascension?: number; npLevel?: number; level?: number; compact?: boolean;
 }) {
   const def = getServant(defId);
   const unlocked = unlockedSkills(ascension);
+  const skillLv = skillLevelFor(level);
+  const np = resolveNp(def.np, npLevel);
   return (
     <div className={`sheet ${compact ? 'compact' : ''}`}>
       <div className="sheet-head">
@@ -18,20 +22,29 @@ export function ServantSheet({ defId, ascension = 0, npLevel = 1, compact = fals
           <div className="deck">{def.deck.map((c, i) => <CardTypeTag key={i} type={c} />)}</div>
         </div>
       </div>
-      {!compact && <p className="lore">{def.lore}</p>}
       <ul className="skill-list">
-        {def.skills.map((s, i) => (
-          <li key={s.id} className={i < unlocked ? '' : 'locked'}>
-            <b>{i < unlocked ? '◆' : '🔒'} {s.name}</b> <small>CD {s.cooldown}</small>
-            <div>{s.description}</div>
-            {i >= unlocked && <small className="muted">Se desbloquea en la Ascensión {i}</small>}
-          </li>
-        ))}
+        {def.skills.map((raw, i) => {
+          const s = resolveSkill(raw, skillLv);
+          return (
+            <li key={raw.id + i} className={i < unlocked ? '' : 'locked'}>
+              <b>{i < unlocked ? '◆' : '🔒'} {s.name}</b> <small className="muted">Lv.{skillLv} · CD {s.cooldown}</small>
+              {describeEffects(s.effects).map((t, j) => <div key={j} className="fx-line">{t}</div>)}
+              {i >= unlocked && <small className="muted">Unlocks at Ascension {i}</small>}
+            </li>
+          );
+        })}
       </ul>
+      {!compact && def.passives?.length ? (
+        <div className="passives">
+          {def.passives.map((p, i) => (
+            <span key={i} className="passive" title={describeEffects(p.effects).join(' · ')}>{p.name}</span>
+          ))}
+        </div>
+      ) : null}
       <div className="np-box">
-        <div><b>NP · {def.np.name}</b> <small>{def.np.title}</small></div>
-        <div><CardTypeTag type={def.np.card} /> {def.np.kind === 'aoe' ? 'Todos los enemigos' : def.np.kind === 'single' ? 'Un enemigo' : 'Apoyo'} · Nv. {npLevel}</div>
-        <div className="muted">{def.np.description}</div>
+        <div><b>NP · {np.name}</b> {np.title && <small className="muted">{np.title}</small>}</div>
+        <div><CardTypeTag type={np.card} /> {np.kind === 'aoe' ? 'All enemies' : np.kind === 'single' ? 'Single target' : 'Support'} · NP{npLevel}</div>
+        {describeNp(np).map((t, j) => <div key={j} className="muted fx-line">{t}</div>)}
       </div>
     </div>
   );

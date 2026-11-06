@@ -1,18 +1,30 @@
 import { getEnemy } from '@/data/enemies';
 import { getServant } from '@/data/servants';
+import { getCraftEssence } from '@/data/craftEssences';
 import { SINGULARITIES } from '@/data/singularities';
+import { CLASS_STAR_WEIGHT, DEFAULT_HITS, skillLevelFor } from '../constants';
+import { resolveNp, resolveSkill } from '../effects';
 import { statsFor, unlockedSkills } from '../progression/leveling';
 import type { Rng } from '../rng';
-import type { AllyUnit, BattleKind, Buff, EnemyUnit, ServantInstance } from '../types';
+import type { AllyUnit, BattleKind, Buff, CraftEssenceDef, EnemyUnit, ServantInstance } from '../types';
 
 export function enemyScale(level: number): number {
   return 1 + 0.065 * (level - 1);
 }
 
-export function makeAlly(inst: ServantInstance): AllyUnit {
+/** CE flat stats scale with the holder's level (25% at Lv1 → 100% at Lv90). */
+export function ceStatScale(level: number): number {
+  return 0.25 + 0.75 * (level / 90);
+}
+
+export function makeAlly(inst: ServantInstance, ce?: CraftEssenceDef): AllyUnit {
   const def = getServant(inst.defId);
   const { maxHp, atk } = statsFor(inst);
   const unlocked = unlockedSkills(inst.ascension);
+  const skillLv = skillLevelFor(inst.level);
+  const ceScale = ceStatScale(inst.level);
+  const ceHp = ce ? Math.round(ce.hp * ceScale) : 0;
+  const ceAtk = ce ? Math.round(ce.atk * ceScale) : 0;
   return {
     side: 'ally',
     key: inst.uid,
@@ -20,28 +32,45 @@ export function makeAlly(inst: ServantInstance): AllyUnit {
     name: def.name,
     cls: def.cls,
     attribute: def.attribute,
-    maxHp,
-    hp: Math.min(inst.hp, maxHp),
-    atk,
+    // CE HP is a battle-only bonus on top of the persistent HP
+    maxHp: maxHp + ceHp,
+    hp: Math.min(inst.hp, maxHp) + (inst.hp > 0 ? ceHp : 0),
+    atk: atk + ceAtk,
     buffs: [],
-    np: 0,
+    np: inst.np ?? 0,
     npLevel: inst.npLevel,
     ascension: inst.ascension,
+    skills: def.skills.map((s) => resolveSkill(s, skillLv)),
     cooldowns: def.skills.map((_, i) => (i < unlocked ? 0 : null)),
+    npDef: resolveNp(def.np, inst.npLevel),
     npRate: def.npRate,
+    npDefRate: def.npDef ?? 3,
     starRate: def.starRate,
+    starAbsorb: def.starAbsorb ?? CLASS_STAR_WEIGHT[def.cls],
+    hits: def.hits ?? DEFAULT_HITS,
+    onEnter: [
+      ...(def.passives ?? []).map((p) => ({ source: p.name, effects: p.effects })),
+      ...(ce ? [{ source: ce.name, effects: ce.effects }] : []),
+    ],
+    entered: false,
   };
+}
+
+export function ceFor(inst: ServantInstance, ces: { uid: string; defId: string }[]): CraftEssenceDef | undefined {
+  const c = inst.ce ? ces.find((x) => x.uid === inst.ce) : undefined;
+  return c ? getCraftEssence(c.defId) : undefined;
 }
 
 let enemyCounter = 0;
 
-export function makeEnemy(defId: string, level: number, hpMult = 1): EnemyUnit {
+export function makeEnemy(defId: string, level: number): EnemyUnit {
   const def = getEnemy(defId);
   const f = enemyScale(level);
-  const maxHp = Math.round(def.hp * f * hpMult);
+  const maxHp = Math.round(def.hp * f);
   const buffs: Buff[] = (def.passives ?? []).flatMap((p) =>
-    p.type === 'buff' ? [{ kind: p.kind, value: p.value, turns: p.turns, times: p.times, source: 'Pasiva' }] : [],
+    p.type === 'buff' ? [{ kind: p.kind, value: p.value, turns: p.turns, times: p.times, source: 'Passive' }] : [],
   );
+  const phases = (def.phases ?? []).map((p) => ({ ...p, hp: Math.round(p.hp * f) }));
   return {
     side: 'enemy',
     key: `e${enemyCounter++}_${defId}`,
@@ -62,10 +91,12 @@ export function makeEnemy(defId: string, level: number, hpMult = 1): EnemyUnit {
     boss: !!def.boss,
     actions: def.actions ?? 1,
     icon: def.icon,
+    phases,
+    totalBars: phases.length + 1,
   };
 }
 
-/** Genera las oleadas de un encuentro según la Singularidad y la profundidad en el mapa. */
+/** Builds the enemy waves for a node. */
 export function generateEncounter(rng: Rng, singularity: number, layer: number, kind: BattleKind): EnemyUnit[][] {
   const sing = SINGULARITIES[singularity];
   const lvl = () => sing.baseLevel + layer + rng.int(0, 2);
@@ -82,7 +113,7 @@ export function generateEncounter(rng: Rng, singularity: number, layer: number, 
       [common(), makeEnemy(rng.pick(sing.elites), lvl() + 3), common()],
     ];
   }
-  // Primer combate de cada mapa: una sola oleada suave
+  // First battle of each map: a single gentle wave
   if (layer === 0) return [[common(), common()]];
   const waveCount = rng.chance(0.7) ? 2 : 3;
   const waves: EnemyUnit[][] = [];

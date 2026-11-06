@@ -8,20 +8,20 @@ export function RestScreen({ run }: { run: RunState }) {
   const fallen = run.party.filter((p) => p.hp <= 0).length;
   return (
     <div className="center-screen">
-      <h2 className="screen-title">♨ Campamento</h2>
-      <p className="muted">Una noche tranquila junto al fuego. Elige cómo aprovecharla.</p>
+      <h2 className="screen-title">♨ Camp</h2>
+      <p className="muted">A quiet night by the fire. How will you spend it?</p>
       <div className="choice-grid two">
         <button className="choice-card rest-card" onClick={() => act((r) => rest(r, 'heal'))}>
           <div className="big-icon">♨</div>
-          <h3>Descansar</h3>
-          <p>Todo el equipo recupera la vida al completo{fallen ? ` y ${fallen} Servant(s) caído(s) vuelven a la batalla` : ''}.</p>
-          <small className="muted">Vida que falta: {missing}</small>
+          <h3>Rest</h3>
+          <p>The whole party recovers all HP{fallen ? `, and ${fallen} fallen Servant(s) return to battle` : ''}.</p>
+          <small className="muted">Missing HP: {missing}</small>
         </button>
         <button className="choice-card rest-card" onClick={() => act((r) => rest(r, 'train'))}>
           <div className="big-icon">⚔</div>
-          <h3>Entrenar</h3>
-          <p>Los Servants vivos ganan EXP equivalente a ~3 niveles. No cura.</p>
-          <small className="muted">Respeta el nivel máximo de cada ascensión.</small>
+          <h3>Train</h3>
+          <p>Living Servants gain EXP worth about 3 levels. No healing.</p>
+          <small className="muted">Level caps still apply.</small>
         </button>
       </div>
     </div>

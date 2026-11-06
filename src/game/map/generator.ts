@@ -2,83 +2,91 @@ import type { MapData, MapNode, NodeType } from '../types';
 import type { Rng } from '../rng';
 
 /**
- * Genera un mapa por capas estilo Slay the Spire / pokelike:
- *  - capa 0: combates de entrada (2–3 caminos)
- *  - capa 1: siempre hay al menos una Invocación (para reclutar pronto)
- *  - capas intermedias: mezcla ponderada
- *  - penúltima capa: Descanso garantizado
- *  - última capa: Jefe de la Singularidad
+ * Fixed diamond lattice (same shape every Singularity, like pokelike):
+ *
+ *            ♛              boss
+ *          ○   ○            row 6  (always Rest)
+ *        ○   ○   ○          row 5
+ *      ○   ○   ○   ○        row 4
+ *        ○   ○   ○          row 3
+ *      ○   ○   ○   ○        row 2
+ *        ○   ○   ○          row 1  (at least one Summon)
+ *          ○   ○            row 0  (Battles)
+ *            ▲              Rayshift point
+ *
+ * Going from a row of n to a row of n+1, node i links to i and i+1;
+ * from n to n−1, node i links to i−1 and i.
  */
-export function generateMap(rng: Rng, singularity: number, layers = 8): MapData {
+export const MAP_ROWS = [2, 3, 4, 3, 4, 3, 2];
+const X_POS: Record<number, number[]> = {
+  1: [0.5],
+  2: [0.3, 0.7],
+  3: [0.18, 0.5, 0.82],
+  4: [0.08, 0.36, 0.64, 0.92],
+};
+
+export function generateMap(rng: Rng, singularity: number): MapData {
+  const rows = [...MAP_ROWS, 1];
   const nodes: Record<string, MapNode> = {};
-  const byLayer: MapNode[][] = [];
-  let counter = 0;
-
-  for (let l = 0; l < layers; l++) {
-    const isBoss = l === layers - 1;
-    const size = isBoss ? 1 : l === 0 ? rng.int(2, 3) : rng.int(2, 4);
-    const layer: MapNode[] = [];
-    for (let i = 0; i < size; i++) {
-      const x = size === 1 ? 0.5 : 0.12 + (0.76 * i) / (size - 1) + rng.range(-0.04, 0.04);
-      const node: MapNode = { id: `n${counter++}`, layer: l, x, type: 'battle', next: [], visited: false };
-      layer.push(node);
+  const byLayer: MapNode[][] = rows.map((size, layer) =>
+    Array.from({ length: size }, (_, i) => {
+      const node: MapNode = { id: `n${layer}_${i}`, layer, x: X_POS[size][i], type: 'battle', next: [], visited: false };
       nodes[node.id] = node;
-    }
-    byLayer.push(layer);
-  }
+      return node;
+    }),
+  );
 
-  // Tipos de nodo
-  for (let l = 0; l < layers; l++) {
-    const layer = byLayer[l];
-    if (l === layers - 1) { layer[0].type = 'boss'; continue; }
-    if (l === layers - 2) { layer.forEach((n) => (n.type = 'rest')); continue; }
-    if (l === 0) { layer.forEach((n) => (n.type = 'battle')); continue; }
-    for (const n of layer) n.type = pickType(rng, l, layers);
-    if (l === 1 && !layer.some((n) => n.type === 'gacha')) rng.pick(layer).type = 'gacha';
-  }
-  // Garantiza al menos un élite en la mitad final (si hay hueco)
-  const mid = byLayer.slice(3, layers - 2).flat();
-  if (mid.length && !mid.some((n) => n.type === 'elite')) rng.pick(mid).type = 'elite';
-
-  // Conexiones: cada nodo apunta a 1–2 nodos cercanos de la siguiente capa
-  for (let l = 0; l < layers - 1; l++) {
+  // Edges
+  for (let l = 0; l < rows.length - 1; l++) {
     const cur = byLayer[l];
     const nxt = byLayer[l + 1];
     cur.forEach((n, i) => {
-      const ratio = cur.length === 1 ? 0.5 : i / (cur.length - 1);
-      const base = Math.round(ratio * (nxt.length - 1));
-      const targets = new Set([base]);
-      if (rng.chance(0.45)) {
-        const alt = base + (rng.chance(0.5) ? 1 : -1);
-        if (alt >= 0 && alt < nxt.length) targets.add(alt);
-      }
-      n.next = [...targets].map((t) => nxt[t].id);
-    });
-    // Todo nodo de la siguiente capa debe ser alcanzable
-    nxt.forEach((m, j) => {
-      if (!cur.some((n) => n.next.includes(m.id))) {
-        const ratio = nxt.length === 1 ? 0.5 : j / (nxt.length - 1);
-        const from = cur[Math.round(ratio * (cur.length - 1))];
-        from.next.push(m.id);
-      }
+      let targets: number[];
+      if (nxt.length === 1) targets = [0];
+      else if (nxt.length > cur.length) targets = [i, i + 1];
+      else targets = [i - 1, i];
+      n.next = targets.filter((t) => t >= 0 && t < nxt.length).map((t) => nxt[t].id);
     });
   }
 
-  return { singularity, layers, nodes, startIds: byLayer[0].map((n) => n.id) };
+  assignTypes(rng, byLayer);
+  return { singularity, layers: rows.length, nodes, startIds: byLayer[0].map((n) => n.id) };
 }
 
-function pickType(rng: Rng, layer: number, layers: number): NodeType {
-  const late = layer >= Math.floor(layers / 2);
+function assignTypes(rng: Rng, byLayer: MapNode[][]) {
+  const last = byLayer.length - 1;
+  byLayer[last][0].type = 'boss';
+  byLayer[last - 1].forEach((n) => (n.type = 'rest'));
+  byLayer[0].forEach((n) => (n.type = 'battle'));
+
+  for (let l = 1; l < last - 1; l++) {
+    for (const n of byLayer[l]) n.type = pickType(rng, l);
+    // never three of the same non-battle type in a row
+    const counts: Partial<Record<NodeType, number>> = {};
+    for (const n of byLayer[l]) counts[n.type] = (counts[n.type] ?? 0) + 1;
+    for (const n of byLayer[l]) {
+      if (n.type !== 'battle' && (counts[n.type] ?? 0) > 2) { counts[n.type]!--; n.type = 'battle'; }
+    }
+  }
+  // Guarantees
+  if (!byLayer[1].some((n) => n.type === 'gacha')) rng.pick(byLayer[1]).type = 'gacha';
+  const mid = byLayer.slice(3, last - 1).flat();
+  if (!mid.some((n) => n.type === 'elite')) rng.pick(mid.filter((n) => n.type === 'battle').length ? mid.filter((n) => n.type === 'battle') : mid).type = 'elite';
+  const early = byLayer.slice(2, 4).flat();
+  if (!early.some((n) => n.type === 'gacha')) rng.pick(early).type = 'gacha';
+}
+
+function pickType(rng: Rng, layer: number): NodeType {
   return rng.weighted<NodeType>([
-    { item: 'battle', weight: 44 },
+    { item: 'battle', weight: 42 },
     { item: 'gacha', weight: 18 },
-    { item: 'treasure', weight: 13 },
-    { item: 'rest', weight: layer <= 1 ? 0 : 9 },
-    { item: 'elite', weight: late ? 14 : 4 },
+    { item: 'treasure', weight: 14 },
+    { item: 'rest', weight: layer <= 2 ? 0 : 8 },
+    { item: 'elite', weight: layer >= 3 ? 16 : 0 },
   ]);
 }
 
-/** Nodos disponibles para avanzar desde la posición actual. */
+/** Nodes you can move to from the current position. */
 export function availableNodes(map: MapData, current: string | null): string[] {
   if (current === null) return map.startIds;
   return map.nodes[current].next;

@@ -6,7 +6,7 @@ export function levelCap(inst: ServantInstance): number {
   return LEVEL_CAPS[inst.ascension];
 }
 
-/** Bonus pasivo de las ascensiones 3 y 4 (+8% stats cada una). */
+/** Passive bonus of ascensions 3 and 4 (+8% stats each). */
 function ascensionBonus(asc: number): number {
   return 1 + 0.08 * Math.max(0, asc - 2);
 }
@@ -21,12 +21,12 @@ export function statsFor(inst: ServantInstance): { maxHp: number; atk: number } 
   };
 }
 
-/** Cuántas skills tiene desbloqueadas según su ascensión (1 → 3). */
+/** Unlocked skills by ascension (1 → 3). */
 export function unlockedSkills(ascension: number): number {
   return Math.min(3, 1 + ascension);
 }
 
-/** Añade EXP. Devuelve el nivel anterior. La EXP se "congela" al llegar al tope. */
+/** Adds EXP and returns the previous level. EXP stops at the level cap. */
 export function gainExp(inst: ServantInstance, amount: number): number {
   const from = inst.level;
   const cap = levelCap(inst);
@@ -37,7 +37,7 @@ export function gainExp(inst: ServantInstance, amount: number): number {
     inst.level++;
   }
   if (inst.level >= cap) inst.exp = Math.min(inst.exp, expToNext(inst.level));
-  // Al subir de nivel, la vida actual sube lo mismo que la máxima (si está vivo)
+  // Current HP grows with max HP (if alive)
   if (inst.hp > 0) inst.hp += statsFor(inst).maxHp - oldMax;
   return from;
 }
@@ -52,7 +52,7 @@ export function canAscend(inst: ServantInstance, crystals: number): boolean {
   return cost !== null && inst.level >= levelCap(inst) && crystals >= cost;
 }
 
-/** Ejecuta la ascensión. Devuelve el coste pagado. */
+/** Performs the ascension and returns the crystal cost. */
 export function ascend(inst: ServantInstance): number {
   const cost = ascensionCost(inst);
   if (cost === null) return 0;
@@ -63,8 +63,8 @@ export function ascend(inst: ServantInstance): number {
 }
 
 export const ASCENSION_UNLOCK_TEXT = [
-  'Desbloquea la 2ª habilidad',
-  'Desbloquea la 3ª habilidad',
-  '+8% HP/ATK (Ascensión III)',
-  '+8% HP/ATK (Ascensión final)',
+  'Unlocks the 2nd skill',
+  'Unlocks the 3rd skill',
+  '+8% HP/ATK (3rd Ascension)',
+  '+8% HP/ATK (Final Ascension)',
 ];

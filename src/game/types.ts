@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────
-//  Tipos centrales del juego. Todo el motor (src/game) es TS puro,
-//  sin React, para poder testearlo y reutilizarlo.
+//  Core types. The engine (src/game) is pure TS — no React —
+//  so it can be unit-tested and simulated headlessly.
 // ─────────────────────────────────────────────────────────────
 
 export type CardType = 'Buster' | 'Arts' | 'Quick';
@@ -8,85 +8,120 @@ export type CardType = 'Buster' | 'Arts' | 'Quick';
 export type ServantClass =
   | 'Saber' | 'Archer' | 'Lancer'
   | 'Rider' | 'Caster' | 'Assassin'
-  | 'Berserker' | 'Shielder' | 'Ruler' | 'Avenger';
+  | 'Berserker' | 'Shielder' | 'Ruler' | 'Avenger'
+  | 'AlterEgo' | 'MoonCancer' | 'Foreigner' | 'Pretender' | 'Beast';
 
-/** Atributos ocultos de FGO: Hombre > Cielo > Tierra > Hombre; Estrella <-> Bestia. */
+/** Hidden attributes: Man > Sky > Earth > Man; Star <-> Beast. */
 export type Attribute = 'Man' | 'Sky' | 'Earth' | 'Star' | 'Beast';
 
 export type BuffKind =
   | 'atkUp' | 'atkDown'
   | 'defUp' | 'defDown'
   | 'busterUp' | 'artsUp' | 'quickUp'
-  | 'critUp' | 'npDmgUp' | 'npGainUp' | 'starGenUp'
+  | 'critUp' | 'critRateUp' | 'npDmgUp' | 'npGainUp' | 'starGenUp' | 'starAbsorbUp'
   | 'evade' | 'invincible' | 'taunt' | 'guts'
-  | 'regen' | 'npRegen' | 'stun';
+  | 'regen' | 'npRegen' | 'starRegen'
+  | 'dmgCut' | 'dot' | 'stun';
 
-export const DEBUFFS: BuffKind[] = ['atkDown', 'defDown', 'stun'];
+export const DEBUFFS: BuffKind[] = ['atkDown', 'defDown', 'stun', 'dot'];
 
 export interface Buff {
   kind: BuffKind;
   value: number;
-  /** Turnos restantes. -1 = permanente (pasivas de jefe). */
+  /** Turns left. -1 = permanent (passives, CEs). */
   turns: number;
-  /** Usos restantes (evasión, invencibilidad, guts). undefined = ilimitado. */
+  /** Uses left (evade, invincible, guts). undefined = unlimited. */
   times?: number;
   source: string;
 }
 
-export type TargetSpec = 'self' | 'ally' | 'allies' | 'enemy' | 'enemies';
+/** others = every other ally on the field (FGO "ptOther"). */
+export type TargetSpec = 'self' | 'ally' | 'allies' | 'others' | 'enemy' | 'enemies';
 
+/**
+ * Effects. `max` (optional) is the value at skill level 10 / NP level 5;
+ * the plain value is level 1. `chance` (0..1) only applies to debuffs on enemies.
+ */
 export type Effect =
-  | { type: 'buff'; target: TargetSpec; kind: BuffKind; value: number; turns: number; times?: number }
-  /** amount = fracción de la vida máxima (0.3 = 30%) */
-  | { type: 'heal'; target: TargetSpec; amount: number }
-  /** amount = puntos de NP (%) */
-  | { type: 'np'; target: TargetSpec; amount: number }
-  | { type: 'stars'; amount: number }
-  | { type: 'chargeDown'; target: TargetSpec; amount: number }
-  | { type: 'cleanse'; target: TargetSpec };
+  | { type: 'buff'; target: TargetSpec; kind: BuffKind; value: number; max?: number; turns: number; times?: number; chance?: number }
+  /** amount = fraction of max HP (0.3 = 30%) */
+  | { type: 'heal'; target: TargetSpec; amount: number; max?: number }
+  /** amount = NP points (%) */
+  | { type: 'np'; target: TargetSpec; amount: number; max?: number }
+  | { type: 'stars'; amount: number; max?: number }
+  | { type: 'chargeDown'; target: TargetSpec; amount: number; max?: number; chance?: number }
+  /** removes debuffs from allies */
+  | { type: 'cleanse'; target: TargetSpec }
+  /** removes buffs from enemies */
+  | { type: 'dispel'; target: TargetSpec };
 
 export interface SkillDef {
   id: string;
   name: string;
-  description: string;
+  /** cooldown at skill level 1 */
   cooldown: number;
+  /** cooldown at skill level 10 */
+  cooldownMax?: number;
   effects: Effect[];
+  /** optional flavour; the UI generates the rules text from `effects` */
+  description?: string;
 }
 
 export interface NoblePhantasmDef {
   name: string;
-  /** Nombre "de pantalla" / traducción */
-  title: string;
+  title?: string;
   card: CardType;
   kind: 'single' | 'aoe' | 'support';
-  /** Multiplicador de daño a NP nivel 1 (FGO: ~3.0–6.0 single, ~3.0–4.5 AoE). */
+  /** Damage multiplier at NP1 (FGO: 4.5 = 450%) */
   multiplier: number;
+  /** Damage multiplier at NP5 */
+  multiplierMax?: number;
   hits: number;
   pre?: Effect[];
   post?: Effect[];
-  description: string;
 }
 
 export interface ServantDef {
   id: string;
   name: string;
   cls: ServantClass;
-  rarity: 1 | 2 | 3 | 4 | 5;
+  rarity: 0 | 1 | 2 | 3 | 4 | 5;
   attribute: Attribute;
-  /** [nivel 1, nivel 90] */
+  /** [level 1, level 90] */
   hp: [number, number];
   atk: [number, number];
-  /** 5 cartas de comando */
   deck: [CardType, CardType, CardType, CardType, CardType];
-  /** NP ganado por hit (en %) */
+  /** NP gained per hit (%) */
   npRate: number;
-  /** Probabilidad base de estrella por hit (0..1) */
+  /** NP gained per hit received (%) */
+  npDef?: number;
+  /** Star drop rate per hit (0..1) */
   starRate: number;
-  skills: [SkillDef, SkillDef, SkillDef];
+  /** Star absorption weight (FGO starAbsorb) */
+  starAbsorb?: number;
+  /** Hits per card type */
+  hits?: { Buster: number; Arts: number; Quick: number; Extra: number };
+  skills: SkillDef[];
+  /** Class skills: always active (turns -1) */
+  passives?: { name: string; effects: Effect[] }[];
   np: NoblePhantasmDef;
-  /** Si es true no sale en el gacha (p.ej. Mash, que se une al empezar). */
+  traits?: string[];
+  /** Not in the summoning pool (e.g. Mash, who joins at the start). */
   noGacha?: boolean;
-  lore: string;
+  /** Atlas collection number */
+  collectionNo?: number;
+}
+
+export interface EnemyPhase {
+  /** HP of this bar at level 1 (scales like the base HP) */
+  hp: number;
+  text: string;
+  effects?: Effect[];
+  npName?: string;
+  npMult?: number;
+  actions?: number;
+  /** Fill the charge gauge when this phase starts */
+  fullCharge?: boolean;
 }
 
 export interface EnemyDef {
@@ -94,7 +129,6 @@ export interface EnemyDef {
   name: string;
   cls: ServantClass;
   attribute: Attribute;
-  /** Stats base a nivel 1 (escalan con el nivel). */
   hp: number;
   atk: number;
   chargeMax: number;
@@ -102,13 +136,26 @@ export interface EnemyDef {
   npMult: number;
   npAoe: boolean;
   boss?: boolean;
-  /** Acciones por turno (los jefes actúan 2–3 veces). */
   actions?: number;
   passives?: Effect[];
+  /** Extra HP bars (boss phases), in order */
+  phases?: EnemyPhase[];
   icon: string;
 }
 
-// ─── Instancias persistentes (run) ───────────────────────────
+export interface CraftEssenceDef {
+  id: string;
+  name: string;
+  rarity: 3 | 4 | 5;
+  /** flat stats at level 90 (scaled by the holder's level) */
+  atk: number;
+  hp: number;
+  /** applied to the holder at the start of each battle */
+  effects: Effect[];
+  text: string;
+}
+
+// ─── Persistent instances (run) ─────────────────────────────
 
 export interface ServantInstance {
   uid: string;
@@ -117,10 +164,19 @@ export interface ServantInstance {
   exp: number;
   /** 0..4 */
   ascension: number;
-  /** Nivel de Noble Phantasm 1..5 (sube con duplicados del gacha) */
+  /** Noble Phantasm level 1..5 (raised by duplicate summons) */
   npLevel: number;
-  /** Vida actual persistente entre combates (roguelike) */
+  /** Persistent HP between battles */
   hp: number;
+  /** NP carried over from the previous battle */
+  np: number;
+  /** equipped Craft Essence (uid in run.ces) */
+  ce: string | null;
+}
+
+export interface CeInstance {
+  uid: string;
+  defId: string;
 }
 
 export type NodeType = 'battle' | 'elite' | 'gacha' | 'rest' | 'treasure' | 'boss';
@@ -128,7 +184,7 @@ export type NodeType = 'battle' | 'elite' | 'gacha' | 'rest' | 'treasure' | 'bos
 export interface MapNode {
   id: string;
   layer: number;
-  /** posición horizontal normalizada 0..1 */
+  /** horizontal position 0..1 */
   x: number;
   type: NodeType;
   next: string[];
@@ -142,7 +198,7 @@ export interface MapData {
   startIds: string[];
 }
 
-// ─── Combate ─────────────────────────────────────────────────
+// ─── Battle ─────────────────────────────────────────────────
 
 interface UnitBase {
   key: string;
@@ -161,10 +217,19 @@ export interface AllyUnit extends UnitBase {
   np: number;
   npLevel: number;
   ascension: number;
-  /** cooldown restante por skill; null = bloqueada (requiere ascensión) */
+  /** Skills resolved for this servant's skill level */
+  skills: SkillDef[];
+  /** cooldown left per skill; null = locked (needs ascension) */
   cooldowns: (number | null)[];
+  npDef: NoblePhantasmDef;
   npRate: number;
+  npDefRate: number;
   starRate: number;
+  starAbsorb: number;
+  hits: { Buster: number; Arts: number; Quick: number; Extra: number };
+  /** class passives + Craft Essence, applied when the unit enters the field */
+  onEnter: { source: string; effects: Effect[] }[];
+  entered: boolean;
 }
 
 export interface EnemyUnit extends UnitBase {
@@ -179,35 +244,63 @@ export interface EnemyUnit extends UnitBase {
   boss: boolean;
   actions: number;
   icon: string;
+  /** remaining phases (HP bars) */
+  phases: EnemyPhase[];
+  totalBars: number;
+  /** used its NP this turn (skips the charge increase) */
+  justNp?: boolean;
 }
 
 export type Unit = AllyUnit | EnemyUnit;
 
 export interface HandCard {
   id: string;
-  owner: string; // key del AllyUnit
+  owner: string;
   type: CardType;
   stars: number;
 }
 
-/** Selección: id de HandCard, o `np:<key>` para un Noble Phantasm. */
+/** A HandCard id, or `np:<key>` for a Noble Phantasm. */
 export type Selection = string;
 
 export interface FxEvent {
   id: number;
-  target: string; // key de unidad
+  target: string;
   kind: 'damage' | 'heal' | 'miss' | 'crit' | 'buff' | 'np';
   text: string;
 }
 
 export type BattleKind = 'battle' | 'elite' | 'boss';
 
+export interface ChainCard { owner: string; type: CardType; isNp: boolean; stars: number }
+
+export interface ChainContext {
+  cards: ChainCard[];
+  busterFirst: boolean;
+  artsFirst: boolean;
+  quickFirst: boolean;
+  busterChain: boolean;
+  artsChain: boolean;
+  quickChain: boolean;
+  mighty: boolean;
+  braveOwner: string | null;
+  starAcc: number;
+}
+
+export type TurnStep =
+  | { t: 'card'; i: number }
+  | { t: 'chainBonus' }
+  | { t: 'extra' }
+  | { t: 'resolveChain' }
+  | { t: 'enemy'; key: string; n: number }
+  | { t: 'enemyCharge' }
+  | { t: 'endTurn' };
+
 export interface BattleState {
   kind: BattleKind;
   waves: EnemyUnit[][];
   waveIndex: number;
   enemies: EnemyUnit[];
-  /** Hasta 3 en primera línea. Puede contener caídos hasta el fin de turno. */
   front: AllyUnit[];
   back: AllyUnit[];
   fallen: AllyUnit[];
@@ -217,21 +310,31 @@ export interface BattleState {
   stars: number;
   turn: number;
   target: number;
-  masterCooldowns: number[];
   status: 'player' | 'won' | 'lost';
+  /** select = player input; resolving = playing the queued turn steps */
+  phase: 'select' | 'resolving';
+  queue: TurnStep[];
+  chain: ChainContext | null;
+  /** unit currently acting (for animations) */
+  acting: string | null;
+  /** index of the chain card being resolved */
+  actingCard: number | null;
+  /** big cut-in text (NP names, phase changes) */
+  banner: string | null;
   log: string[];
   fx: FxEvent[];
   fxCounter: number;
   cardCounter: number;
 }
 
-// ─── Run ─────────────────────────────────────────────────────
+// ─── Run ────────────────────────────────────────────────────
 
 export type Phase =
   | 'starter'
   | 'map'
   | 'battle'
   | 'battleResult'
+  | 'ceReward'
   | 'gacha'
   | 'rest'
   | 'treasure'
@@ -250,16 +353,21 @@ export interface RunState {
   seed: number;
   rngState: number;
   phase: Phase;
-  singularity: number; // 0..7
+  singularity: number;
   map: MapData;
   currentNode: string | null;
-  /** Orden = formación. Los 3 primeros vivos van a primera línea. */
   party: ServantInstance[];
+  ces: CeInstance[];
   crystals: number;
   commandSeals: number;
+  /** Mystic Code skills used in the current Singularity */
+  mysticUsed: boolean[];
   uidCounter: number;
   gachaOptions: string[];
+  /** a Command Seal was found in this summon */
+  gachaSeal: boolean;
   starterOptions: string[];
+  ceOptions: string[];
   battle: BattleState | null;
   lastReward: BattleReward | null;
   treasureText: string | null;

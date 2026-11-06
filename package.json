@@ -1,16 +1,18 @@
 {
   "name": "fgolike",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "Roguelike web inspirado en pokelike.xyz con el combate por cartas de Fate/Grand Order (fan game sin ánimo de lucro).",
+  "description": "Roguelike web game inspired by pokelike.xyz with Fate/Grand Order's command card combat (non-profit fan game).",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "import:atlas": "node scripts/import-atlas.mjs",
+    "simulate": "npx tsx scripts/simulate.ts"
   },
   "dependencies": {
     "react": "^19.1.0",

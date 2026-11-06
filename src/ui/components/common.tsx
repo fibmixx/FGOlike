@@ -1,17 +1,13 @@
 import type { ReactNode } from 'react';
-import { CLASS_ICON } from '@/game/constants';
+import { CLASS_COLOR, CLASS_LABEL } from '@/game/constants';
 import type { CardType, ServantClass } from '@/game/types';
-
-const CLASS_COLOR: Record<ServantClass, string> = {
-  Saber: '#4d7cff', Archer: '#e0473f', Lancer: '#3ab0a2', Rider: '#d9a72b', Caster: '#9b5de5',
-  Assassin: '#5b5b6e', Berserker: '#c2185b', Shielder: '#8aa0b8', Ruler: '#f2d16b', Avenger: '#7a1f1f',
-};
+import { ClassIcon } from './ClassIcon';
 
 function initials(name: string) {
-  return name.replace(/\(.*?\)/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  return name.replace(/\(.*?\)|〔.*?〕/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 }
 
-/** Retrato placeholder: gradiente por clase + iniciales. Sustituible por arte propio en /public/portraits/<id>.png */
+/** Placeholder portrait: class gradient + initials + class glyph. Swap for real art later. */
 export function Portrait({ name, cls, size = 56, dead = false, icon }: {
   name: string; cls: ServantClass; size?: number; dead?: boolean; icon?: string;
 }) {
@@ -23,13 +19,19 @@ export function Portrait({ name, cls, size = 56, dead = false, icon }: {
       title={name}
     >
       <span>{icon ?? initials(name)}</span>
-      <i className="portrait-class" style={{ fontSize: Math.max(10, size * 0.22) }}>{CLASS_ICON[cls]}</i>
+      <i className="portrait-class">
+        <ClassIcon cls={cls} size={Math.max(11, size * 0.3)} color="#fff" title={false} />
+      </i>
     </div>
   );
 }
 
 export function ClassBadge({ cls }: { cls: ServantClass }) {
-  return <span className="class-badge" style={{ borderColor: CLASS_COLOR[cls], color: CLASS_COLOR[cls] }}>{CLASS_ICON[cls]} {cls}</span>;
+  return (
+    <span className="class-badge" style={{ borderColor: CLASS_COLOR[cls], color: CLASS_COLOR[cls] }}>
+      <ClassIcon cls={cls} size={12} title={false} /> {CLASS_LABEL[cls]}
+    </span>
+  );
 }
 
 export function Bar({ value, max, kind = 'hp', label, thin }: {
@@ -46,7 +48,7 @@ export function Bar({ value, max, kind = 'hp', label, thin }: {
 }
 
 export function Rarity({ n }: { n: number }) {
-  return <span className="rarity">{'★'.repeat(n)}</span>;
+  return <span className="rarity">{n === 0 ? '0★' : '★'.repeat(n)}</span>;
 }
 
 export function CardTypeTag({ type }: { type: CardType }) {
@@ -61,7 +63,7 @@ export function Modal({ title, onClose, children, wide }: {
       <div className={`modal ${wide ? 'wide' : ''}`} onClick={(e) => e.stopPropagation()}>
         <header className="modal-header">
           <h2>{title}</h2>
-          <button className="btn ghost" onClick={onClose} aria-label="Cerrar">✕</button>
+          <button className="btn ghost" onClick={onClose} aria-label="Close">✕</button>
         </header>
         <div className="modal-body">{children}</div>
       </div>
